@@ -14,4 +14,4 @@ description: Packages softwares using Nix
 ## Language specific packaging skills
 
 - See [python](./python/python.md) for packaging python modules.
-
+- See [rust](./rust/rust.md) for packaging rust applications.
