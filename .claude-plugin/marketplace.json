@@ -5,8 +5,8 @@
     "email": "breakds@gmail.com"
   },
   "plugins": [{
-    "name": "common-tools",
-    "source": "./common-tools",
-    "description": "The collection of my claude tools"
+    "name": "bds-dev",
+    "source": "./bds-dev",
+    "description": "Provide tools and skills for daily development"
   }]
 }
