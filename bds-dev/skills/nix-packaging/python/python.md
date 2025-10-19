@@ -31,3 +31,17 @@ When dependency requirements cannot be satisfied, investigate further:
 2. **Missing dependency**: If the dependency is not packaged, assess whether it's essential for your use case. If not, add it to `pythonRemoveDeps`.
 
 See [darts](./darts/package.nix) for an example.
+
+## Updating an Existing Python Package
+
+Besides the general update steps, also:
+
+1. **Update dependencies**: Check `pyproject.toml` or `setup.py` for changed dependencies and update:
+   - `dependencies` - Runtime dependencies
+   - `build-system` - Build-time dependencies (e.g., setuptools, poetry-core)
+   - `optional-dependencies` - If relevant to your use case
+
+2. **Handle breaking changes**: New versions may:
+   - Drop Python version support (update `pythonOlder` or `disabled`)
+   - Change build backends (update `build-system` based on `pyproject.toml`)
+   - Add new test dependencies (update `nativeCheckInputs` or `checkInputs`)
