@@ -37,3 +37,4 @@ For language-specific update steps, see the references below.
 
 - [Python](./python/python.md) - Packaging Python modules
 - [Rust](./rust/rust.md) - Packaging Rust applications
+- [JavaScript/TypeScript](./js/js.md) - Packaging npm applications
