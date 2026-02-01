@@ -1,8 +1,9 @@
 {
   "name": "bds-dev",
   "description": "Provide tools and skills for daily development",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": {
     "name": "Break Yang"
-  }
+  },
+  "commands": "./commands/"
 }

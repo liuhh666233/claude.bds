@@ -1,11 +1,18 @@
 ---
-name: Export Sessions
+name: export-sessions
 description: Export Claude Code conversation sessions to Markdown format with auto-generated and custom tags
 ---
 
 # Export Sessions Command
 
 Export Claude Code conversation history to well-organized Markdown files with metadata tags.
+
+## Prerequisites
+
+This command requires Python 3.10+. On NixOS, use:
+```bash
+nix-shell -p python312 --run "python3 script.py"
+```
 
 ## Data Sources
 
@@ -16,95 +23,172 @@ Claude Code stores conversation data in two locations:
    - Used for listing sessions and getting metadata
 
 2. **Project-level sessions**: `~/.claude/projects/{encoded-path}/{sessionId}.jsonl`
-   - Directory name encoding: `/home/user/project` -> `-home-user-project`
+   - Directory name encoding rules:
+     - `/` becomes `-` (e.g., `/home/user` -> `-home-user`)
+     - `.` becomes `-` (e.g., `claude.bds` -> `claude-bds`)
    - Contains full conversation records with message types: `user`, `assistant`, `summary`, `file-history-snapshot`
 
 ## Workflow
 
-### Step 1: Scan Available Projects
+### Step 1: Scan and Display ALL Projects
 
-Read the `~/.claude/projects/` directory to list all projects with recorded sessions.
+First, list ALL projects with their session counts so the user can see the full picture:
 
 ```bash
-ls ~/.claude/projects/
+for dir in ~/.claude/projects/*/; do
+  name=$(basename "$dir")
+  count=$(ls "$dir"*.jsonl 2>/dev/null | grep -v "agent-" | wc -l)
+  if [ "$count" -gt 0 ]; then
+    echo "$count|$name"
+  fi
+done 2>/dev/null | sort -t'|' -k1 -rn
 ```
 
-For each project directory:
-1. Decode the directory name by replacing leading `-` with `/` and internal `-` with `/` (note: this is a heuristic; verify by checking if the path exists)
-2. Count `.jsonl` files (excluding `agent-*.jsonl` subagent files if desired, or include them)
-3. Get the most recent modification time
+**IMPORTANT**: Output the FULL list as text BEFORE asking the user to select, like this:
 
-Present to the user:
 ```
-Available projects with Claude Code sessions:
+Found 15 projects with Claude Code sessions:
 
-1. /home/user/github/reporting (15 sessions)
-2. /home/user/github/claude.bds (8 sessions)
-3. /home/user/github/my-app (12 sessions)
+ #  | Sessions | Project
+----|----------|----------------------------------
+ 1  |    56    | intraday-alpha-research
+ 2  |    13    | reporting
+ 3  |    13    | all-weather-portfolio
+ 4  |    12    | research-incubator
+ 5  |    10    | fastpy
+ 6  |     9    | research-toolkit
+ 7  |     6    | data-pipeline-monitor
+ 8  |     5    | wonder-pkgs
+ 9  |     5    | excalibur-cli
+10  |     5    | claude.bds
+11  |     4    | simulated-trading
 ...
-
-Enter project number(s) to export (comma-separated, e.g., "1,3", or "all"):
 ```
 
-### Step 2: Select Sessions
+Then use AskUserQuestion with common options. The user can select "Other" to input specific project numbers:
 
-For each selected project, read `~/.claude/history.jsonl` and filter by project path.
-
-Read the history file and parse each line as JSON. Filter entries where `project` matches the selected project path.
-
-Present sessions to the user with:
-- Date/time (convert timestamp from milliseconds)
-- First user message preview (the `display` field, truncated to ~60 chars)
-
-Example:
 ```
-Sessions for /home/user/github/reporting:
+Options:
+1. All projects (export everything)
+2. Top 5 by session count
+3. Last 7 days only
+4. [Other - let user input project numbers like "1,3,5" or "1-5"]
+```
 
-1. [2026-01-31 20:11] "Please refactor the reporting code..."
-2. [2026-01-30 15:42] "Change the table background color..."
-3. [2026-01-29 10:15] "Read the pnl.py file and explain..."
-...
+### Step 2: Select Sessions by Time Range
 
-Select sessions (comma-separated, range "1-5", or "all"):
+After selecting projects, ask how to filter sessions:
+
+```
+Options:
+1. All sessions (may be many)
+2. Last 7 days
+3. Last 30 days
+4. Last 5 sessions per project
+```
+
+For the selected time range, query `~/.claude/history.jsonl`:
+
+```python
+import json
+from datetime import datetime
+
+# Filter by timestamp (milliseconds)
+seven_days_ago = (datetime.now().timestamp() - 7*24*60*60) * 1000
+
+sessions = []
+with open('~/.claude/history.jsonl') as f:
+    for line in f:
+        data = json.loads(line)
+        if data['timestamp'] >= seven_days_ago:
+            if data['project'] in selected_projects:
+                sessions.append(data)
+```
+
+Display the filtered sessions:
+
+```
+Found 12 sessions in selected time range:
+
+Project: reporting (3 sessions)
+  1. [2026-01-31 20:11] "Please refactor the reporting code..."
+  2. [2026-01-30 15:42] "Change the table background color..."
+  3. [2026-01-29 10:15] "Read the pnl.py file and explain..."
+
+Project: claude.bds (2 sessions)
+  4. [2026-02-01 08:27] "Export sessions plugin design..."
+  5. [2026-02-01 07:50] "Create new skill plugin..."
 ```
 
 ### Step 3: Configure Export Options
 
-Ask the user for export configuration:
+Ask for export configuration with sensible defaults:
 
 ```
-Export Configuration:
+Options for Export Path:
+1. /var/lib/wonder/warehouse/database/lxb/claude-sessions/ (last used)
+2. ./claude-exports/ (current directory)
+3. ~/Documents/claude-exports/
+4. [Other - custom path]
 
-1. Export path (default: ./claude-exports/):
-   > [user input or press Enter for default]
+Options for Output Detail:
+1. Truncate large outputs (recommended) - keeps files smaller
+2. Full output - includes complete tool results
 
-2. Custom tags (comma-separated, optional):
-   > [e.g., "work, finance, q4-project"]
-
-3. Include full tool outputs? (y/n, default: n)
-   Large tool outputs will be truncated. Choose 'y' to include complete outputs.
-   > [user input]
-
-4. Include AI thinking blocks? (y/n, default: n)
-   > [user input]
+Custom Tags (optional):
+- Let user input comma-separated tags like "work, finance, q4-project"
+- These will be prefixed with "custom/" in the output
 ```
 
 ### Step 4: Process Each Session
 
-For each selected session:
+#### 4.1 Find the Session File
 
-#### 4.1 Read the Session File
+The project path to directory mapping is tricky. Use this approach:
 
-Read the JSONL file at `~/.claude/projects/{encoded-project-path}/{sessionId}.jsonl`
+```python
+def find_project_dir(project_path):
+    """Find the encoded directory for a project path"""
+    projects_dir = Path("~/.claude/projects").expanduser()
 
-Parse each line and filter by type:
-- **Include**: `user`, `assistant` (these form the conversation)
-- **Include for metadata**: `summary` (use as title if available)
-- **Skip**: `file-history-snapshot`, `system`
+    # Try encoding: replace / with - and . with -
+    encoded = project_path.replace('/', '-').replace('.', '-')
+    if (projects_dir / encoded).exists():
+        return projects_dir / encoded
 
-#### 4.2 Build Conversation Chain
+    # Fallback: search by project name
+    project_name = Path(project_path).name.replace('.', '-')
+    for d in projects_dir.iterdir():
+        if d.is_dir() and project_name in d.name:
+            return d
 
-Messages are linked via `parentUuid` -> `uuid`. Build the conversation in chronological order using timestamps.
+    return None
+```
+
+#### 4.2 Filter Valid Sessions
+
+**IMPORTANT**: Skip sessions that only contain metadata (no actual conversation):
+
+```python
+def has_conversation(session_file):
+    """Check if session has actual user/assistant messages"""
+    with open(session_file) as f:
+        for line in f:
+            data = json.loads(line)
+            if data.get('type') in ('user', 'assistant'):
+                msg = data.get('message', {})
+                content = msg.get('content')
+                # Check for actual content, not just tool results
+                if isinstance(content, str) and content.strip():
+                    return True
+                if isinstance(content, list):
+                    for block in content:
+                        if block.get('type') == 'text':
+                            return True
+    return False
+```
+
+Sessions with only `summary` and `file-history-snapshot` entries should be skipped with a note.
 
 #### 4.3 Auto-detect Tags
 
@@ -194,12 +278,6 @@ tags:
 
 ---
 
-### User (HH:MM)
-
-[Next user message...]
-
----
-
 [Continue for all messages...]
 ```
 
@@ -212,12 +290,10 @@ If `message.content` is a string, output it directly.
 If `message.content` is an array with `tool_result` items, format as:
 
 ```markdown
-### User (HH:MM) - Tool Result
-
-**Tool**: [tool name from context]
+### Tool Result (HH:MM)
 
 <details>
-<summary>Result</summary>
+<summary>Output</summary>
 
 ```
 [tool result content]
@@ -233,126 +309,51 @@ Process `message.content` array:
 - **`text` blocks**: Output the text directly
 - **`tool_use` blocks**: Format based on tool type:
 
-  For **Bash**:
-  ```markdown
-  #### Tool: Bash
-  **Command**: `[command]`
-  ```
+  | Tool | Format |
+  |------|--------|
+  | Bash | `**Command**: \`command\`` |
+  | Read | `**File**: \`file_path\`` |
+  | Edit | `**File**: \`file_path\`` |
+  | Write | `**File**: \`file_path\`` |
+  | Grep | `**Pattern**: \`pattern\``, `**Path**: \`path\`` |
+  | Glob | `**Pattern**: \`pattern\`` |
+  | Task | `**Description**: description` |
 
-  For **Read**:
-  ```markdown
-  #### Tool: Read
-  **File**: `[file_path]`
-  ```
-
-  For **Edit**:
-  ```markdown
-  #### Tool: Edit
-  **File**: `[file_path]`
-  **Change**: Replace `[old_string snippet]` with `[new_string snippet]`
-  ```
-
-  For **Grep**:
-  ```markdown
-  #### Tool: Grep
-  **Pattern**: `[pattern]`
-  **Path**: `[path]`
-  ```
-
-  For **Write**:
-  ```markdown
-  #### Tool: Write
-  **File**: `[file_path]`
-  ```
-
-- **`thinking` blocks**: If user chose to include them:
-  ```markdown
-  <details>
-  <summary>Thinking</summary>
-
-  [thinking content]
-
-  </details>
-  ```
+- **`thinking` blocks**: If user chose to include them, wrap in `<details>` tag
 
 ### Step 6: Truncate Large Outputs
 
 For tool outputs longer than 100 lines:
 
-```markdown
-<details>
-<summary>Output (truncated, showing first 80 and last 20 of 500 lines)</summary>
-
 ```
 [first 80 lines]
 
-... [340 lines omitted] ...
+... [N lines omitted] ...
 
 [last 20 lines]
 ```
 
-</details>
-```
-
-### Step 7: Write Files
+### Step 7: Write Files and Generate Index
 
 1. Create the export directory if it doesn't exist
-2. For each session, write the markdown file with naming: `{YYYY-MM-DD}_{project-name}_{session-id-first-6-chars}.md`
-3. Create an `index.md` file in the export directory
+2. For each session, write: `{YYYY-MM-DD}_{project-name}_{session-id-first-6-chars}.md`
+3. Create/update `index.md` with session table and tag summary
 
-### Step 8: Generate Index File
+### Step 8: Report Results
 
-Create `index.md` with:
-
-```markdown
-# Claude Code Session Exports
-
-**Exported on**: YYYY-MM-DD HH:MM
-**Total sessions**: N
-**Projects**: M
-
----
-
-## Sessions by Project
-
-### project-name
-
-| Date | Title | Tags | File |
-|------|-------|------|------|
-| 2026-01-31 | Refactor reporting code | python, refactoring | [Link](./2026-01-31_reporting_c74f37.md) |
-| 2026-01-30 | Fix table styling | python, bug-fix | [Link](./2026-01-30_reporting_f7ef9f.md) |
-
-### another-project
-
-| Date | Title | Tags | File |
-|------|-------|------|------|
-| ... | ... | ... | ... |
-
----
-
-## Tags Summary
-
-| Tag | Count |
-|-----|-------|
-| auto/python | 5 |
-| auto/refactoring | 3 |
-| custom/work | 4 |
-```
-
-### Step 9: Report Results
-
-Provide a summary:
+Provide a clear summary:
 
 ```
 Export Complete!
 
 Location: /path/to/exports/
 Sessions exported: 5
+Sessions skipped: 2 (no conversation content)
+
 Files created:
-  - 2026-01-31_reporting_c74f37.md (python, refactoring)
-  - 2026-01-30_reporting_f7ef9f.md (python, bug-fix)
-  - 2026-01-29_reporting_a446f7.md (python, data-science)
-  - index.md
+  - 2026-01-31_reporting_c74f37.md (python, refactoring) - 45KB
+  - 2026-01-30_reporting_f7ef9f.md (python, bug-fix) - 12KB
+  - index.md (updated)
 
 Note: Please review exported files for any sensitive information before sharing.
 ```
@@ -361,20 +362,32 @@ Note: Please review exported files for any sensitive information before sharing.
 
 - **Corrupted JSONL lines**: Skip and log a warning, continue with next line
 - **Missing session files**: Report which sessions couldn't be found
+- **Empty sessions**: Skip sessions with only metadata (summary/file-history-snapshot)
 - **Permission errors**: Report and suggest checking file permissions
-- **Invalid JSON**: Log the line number and skip
 
-At the end, report any errors encountered:
+## Implementation Notes
 
+### Python 3 Requirement
+
+The export script uses f-strings and pathlib, requiring Python 3.6+. On NixOS:
+
+```bash
+nix-shell -p python312 --run "python3 /tmp/export_sessions.py '$sessions_json'"
 ```
-Warnings:
-- Skipped 2 corrupted lines in session c74f37
-- Session f7ef9f.jsonl not found (may have been deleted)
-```
 
-## Notes
+### Path Encoding Gotchas
 
-- The `~/.claude/` directory contains sensitive conversation data
-- Always remind users to review exports before sharing
-- Session files can be large (several MB for long conversations)
-- Timestamps in history.jsonl are Unix milliseconds; in session files they are ISO 8601
+- `/home/lxb/github/claude.bds` encodes to `-home-lxb-github-claude-bds` (not `-home-lxb-github-claude.bds`)
+- Always verify the encoded path exists before reading
+
+### Session Validation
+
+Before exporting, verify the session has actual content:
+- Sessions from `/resume` commands often only contain `file-history-snapshot` entries
+- Sessions should have at least one `user` or `assistant` message with text content
+
+### Performance Tips
+
+- For large exports (>50 sessions), consider running in background
+- Tool outputs can be very large; truncation is recommended
+- The index file should be regenerated to include new exports
