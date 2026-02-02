@@ -54,7 +54,43 @@ Read the factor implementation and analyze:
 - Computation logic
 - Output field names
 
-### Step 2: Check Prerequisites
+### Step 2: Resolve Unknown Dependencies
+
+When encountering functions/modules with unclear definitions (e.g., `npd.ffillna`, `npd.clean`, `bn.move_sum`), ask the user for source paths:
+
+```
+I found references to the following libraries that I need to understand:
+- numpandas (npd.ffillna, npd.clean, npd.shift)
+- bottleneck (bn.move_sum, bn.move_std)
+- toolkit.stats (custom functions)
+
+Please provide the source code paths for these libraries:
+
+Options:
+1. numpandas - Path to numpandas repo
+   - Default: /home/lxb/github/numpandas
+   - [Other - custom path]
+
+2. research-toolkit - Path to toolkit/stats
+   - Default: /home/lxb/github/research-toolkit
+   - [Other - custom path]
+
+3. Skip - I'll infer the behavior from usage context
+```
+
+**Common library locations:**
+| Library | Default Path | Key Functions |
+|---------|--------------|---------------|
+| `numpandas` | `/home/lxb/github/numpandas` | `ffillna`, `clean`, `shift`, `align_backward` |
+| `research-toolkit` | `/home/lxb/github/research-toolkit` | `standardize`, `rolling_correlation` |
+| `bottleneck` | System package | `move_sum`, `move_std`, `move_median`, `nanargmax` |
+
+After getting paths, read the relevant function implementations to understand:
+- NaN handling behavior
+- Edge case handling (empty arrays, all-NaN slices)
+- Parameter defaults (min_count, ddof, etc.)
+
+### Step 3: Check Prerequisites
 
 **Inform user of required preparations:**
 
